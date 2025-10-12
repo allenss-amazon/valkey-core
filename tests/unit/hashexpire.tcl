@@ -623,10 +623,9 @@ start_server {tags {"hashexpire"}} {
         set e
     } {ERR *}
 
-    # test {HSETEX PX - mismatched field/value count} {
-    #     catch {r HSETEX myhash PX 100 FIELDS 2 field1 val1} e
-    #     set e
-    # } {ERR wrong number of arguments for 'hsetex' command}
+    test {HSETEX PX - mismatched field/value count} {
+         assert_error {ERR numfields should be greater than 0 and match the provided number of fields} {r HSETEX myhash PX 100 FIELDS 1 field1 val1 extra}
+    } 
 
 
     ## FNX/FXX
@@ -684,6 +683,12 @@ start_server {tags {"hashexpire"}} {
         catch {r HSETEX myhash EX 10 FNX FXX FIELDS 1 x y} e
         set e
     } {ERR *}
+
+     test {HSETEX EX - FXX does not create object in case key does not exist} {
+        r FLUSHALL
+        assert_equal 0 [r HSETEX myhash EX 10 FXX FIELDS 1 x y]
+        assert_equal 0 [r EXISTS myhash]
+    }
 
     ###### Test EXPIRE #############
 
@@ -1479,7 +1484,9 @@ start_server {tags {"hashexpire"}} {
             lappend pairs "f$i" "v$i"
         }
         r HSET myhash {*}$pairs
-        r HEXPIRE myhash 3 FIELDS 5 f1 f10 f100 f200 f300
+        
+        set expire_time [get_long_expire_value HEXPIREAT]
+        r HEXPIREAT myhash $expire_time FIELDS 5 f1 f10 f100 f200 f300
         
         # Verify encoding changed to hashtable
         set "hashtable" [r OBJECT ENCODING myhash]
@@ -1488,9 +1495,9 @@ start_server {tags {"hashexpire"}} {
         for {set i 1} {$i <= 600} {incr i} {
             assert_equal "v$i" [r HGET myhash "f$i"]
             if {$i == 1 || $i == 10 || $i == 100 || $i == 200 || $i == 300} {
-                assert_equal 3 [r HTTL myhash FIELDS 1 "f$i"]
+                assert_equal [r HEXPIRETIME myhash FIELDS 1 "f$i"] $expire_time
             } else {
-                assert_equal -1 [r HTTL myhash FIELDS 1 "f$i"]
+                assert_equal [r HTTL myhash FIELDS 1 "f$i"] -1
             }
         }
         # Re-enable active expiry
